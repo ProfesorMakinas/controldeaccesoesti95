@@ -1,0 +1,277 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <SPI.h>
+#include <MFRC522.h>
+
+#define RST_PIN 9
+#define SS_PIN 10
+#define BUZZER_PIN 8
+
+#define I2C_ADDR    0x27
+#define COLS        16
+#define ROWS        2
+
+unsigned long previousMillis = 0;
+const long interval = 1000;  // Intervalo de tiempo para el temporizador (1 segundo)
+bool timerActive = false;
+
+bool bloqueado = false;  //bloquea las salidas
+bool salidaactiva = false;  // Estado de las salidas
+unsigned long startTime = 0;  // Tiempo de inicio del temporizador
+unsigned long lastCardReadTime = 0;
+const unsigned long cardReadInterval = 2000; // Intervalo mínimo entre lecturas de tarjetas
+int tiemporestante;
+char texto[14];
+int indice = 0;
+int ultimoindice;
+int tiempodesalida = 10;
+int espera = 0;
+int cuentasalidas = 2;
+MFRC522 reader(SS_PIN, RST_PIN);
+MFRC522::MIFARE_Key key;
+
+LiquidCrystal_I2C lcd(I2C_ADDR, COLS, ROWS);
+
+struct Alumno {
+  String numlista;
+  String nombre;
+  String apellido;
+  String grupo;
+  String token; // Numero de serie de la tarjeta RFID
+};
+
+Alumno alumnos[] = { //tecnologia 2do grado
+  {"00","IGNACIO", "MONTANO", "DOCENTE","XX-78-93-17"},
+
+
+*/
+};
+
+void setup() {
+  pinMode(BUZZER_PIN, OUTPUT);
+  Serial.begin(9600);
+  startTime = millis();
+  timerActive = false;
+  lcd.init();
+  lcd.backlight();
+  bienvenida();
+  SPI.begin();
+  reader.PCD_Init();
+  delay(4);
+  for (byte i = 0; i < 6; i++) {
+    key.keyByte[i] = 0xFF;
+  }
+  Serial.println("Ready!");
+}
+
+void imprimealumno() {
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print(alumnos[indice].nombre);
+  lcd.setCursor(9, 0);
+  lcd.print(alumnos[indice].apellido);
+  lcd.setCursor(0, 1);
+  lcd.print(alumnos[indice].grupo);
+  lcd.setCursor(7, 1);
+  lcd.print(alumnos[indice].numlista);
+  lcd.setCursor(10, 1);
+  sprintf(texto, "%02d:%02d", (tiemporestante / 60), (tiemporestante % 60)); 
+  lcd.print(texto);
+}
+
+void tiempodisplay() {
+  if (espera < 1) {
+    imprimealumno();
+  }
+  if (espera == 1) {
+    lcd.clear();
+    imprimealumno();
+  }
+  espera--;
+  tiemporestante--;
+
+  if (tiemporestante == 0) {
+    timerActive = false;  // Desactivar el temporizador
+    bloqueado = true;
+    salidaactiva = false;
+    alumnofuera();
+  }
+}
+
+void alumnofuera() {
+  lcd.clear();
+  lcd.backlight();
+  int i = indice;
+   lcd.setCursor(0, 0);
+  lcd.print(alumnos[indice].nombre);
+  lcd.setCursor(9, 0);
+  lcd.print(alumnos[indice].apellido);
+  lcd.setCursor(0, 1);
+  lcd.print(alumnos[indice].grupo);
+  lcd.setCursor(0, 1);
+  lcd.print("EstaFuera");
+  lcd.setCursor(10, 1);
+  lcd.print(alumnos[indice].numlista);
+
+  tone(BUZZER_PIN, 800);
+  delay(100);  // Mantener el tono durante 200ms
+  noTone(BUZZER_PIN);  // Detener el tono
+  tone(BUZZER_PIN, 600);
+  delay(200); 
+  noTone(BUZZER_PIN);  // Detener el tono
+  delay(1000);  
+}
+
+void bienvenida() {
+  ultimoindice=indice;
+  Serial.println(ultimoindice);
+  lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("ControldeSalidas");
+      lcd.setCursor(0, 1);
+      lcd.print("AVR millis v2.0 ");
+}
+
+void loop() {
+  if (salidaactiva && timerActive) {
+    unsigned long currentMillis = millis();
+    if (currentMillis - previousMillis >= interval) {
+      previousMillis = currentMillis;
+      tiempodisplay();
+    }
+  }
+
+  if (!reader.PICC_IsNewCardPresent()) {
+    return;
+  }
+  if (!reader.PICC_ReadCardSerial()) {
+    return;
+  }
+
+  unsigned long currentMillis = millis();
+  if (currentMillis - lastCardReadTime < cardReadInterval) {
+    return; // Ignorar la lectura si no ha pasado suficiente tiempo
+  }
+  lastCardReadTime = currentMillis; // Registrar el tiempo de esta lectura
+
+  String token = "";
+  for (int x = 0; x < reader.uid.size; x++) {
+    if (reader.uid.uidByte[x] < 0x10) {
+      token += "0";
+    }
+    token += String(reader.uid.uidByte[x], HEX);
+    if (x + 1 != reader.uid.size) {
+      token += "-";
+    }
+  }
+  token.toUpperCase();
+  bool encontrado = false;
+  for (size_t i = 0; i < sizeof(alumnos) / sizeof(alumnos[0]); i++) {
+    if (token == alumnos[i].token) {
+      encontrado = true;   
+ 
+ if (indice==ultimoindice){
+   Serial.println("acabas de salir");
+   delay(1000);
+  }
+//if(cuentasalidas<0){
+  // break;
+    //}
+      
+      Serial.println(i);
+      if (timerActive == false) {
+        indice = i;
+        tiemporestante = tiempodesalida;
+      }
+
+      if (bloqueado == false) { 
+        tone(BUZZER_PIN, 1000);  // Activar tono para tarjeta válida
+        delay(100);  // Mantener el tono durante 200ms
+        noTone(BUZZER_PIN);  // Detener el tono
+        tone(BUZZER_PIN, 1500);  // Activar tono para tarjeta válida
+        delay(200);  // Mantener el tono durante 200ms
+        noTone(BUZZER_PIN);  // Detener el tono
+        if (timerActive == true) {
+          if (indice == i) {
+            timerActive = false;  // Desactivar el temporizador
+            salidaactiva = false;
+            delay(2000);
+            bienvenida();
+          } else {
+            tone(BUZZER_PIN, 600);  // Activar tono para tarjeta válida
+            delay(100);  // Mantener el tono durante 200ms
+            noTone(BUZZER_PIN);  // Detener el tono
+            tone(BUZZER_PIN, 400);  // Activar tono para tarjeta válida
+            delay(200);  // Mantener el tono durante 200ms
+            noTone(BUZZER_PIN);  // Detener el tono
+          }
+        } else {                       
+          lcd.clear();
+          salidaactiva = true; // Marcar la salida como procesada
+          timerActive = true; // Activar el temporizador
+          previousMillis = currentMillis;
+        }
+      } else {
+        tone(BUZZER_PIN, 600);  // Activar tono para tarjeta válida
+        delay(100);  // Mantener el tono durante 200ms
+        noTone(BUZZER_PIN);  // Detener el tono
+        tone(BUZZER_PIN, 400);  // Activar tono para tarjeta válida
+        delay(200);  // Mantener el tono durante 200ms
+        noTone(BUZZER_PIN);  // Detener el tono
+        if (indice == 0) {
+          bloqueado = false;
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print(" Llave Maestra");
+          lcd.setCursor(0, 1);
+          lcd.print(" Desbloqueado ");
+          tone(BUZZER_PIN, 1000);  // Activar tono para tarjeta válida
+          delay(100);  // Mantener el tono durante 200ms
+          noTone(BUZZER_PIN);  // Detener el tono
+          tone(BUZZER_PIN, 1500);  // Activar tono para tarjeta válida
+          delay(200);  // Mantener el tono durante 200ms
+          noTone(BUZZER_PIN);  // Detener el tono
+          delay(2000);
+          bienvenida();
+        }
+      }
+      break;
+    }
+  }
+
+  if (!encontrado) {
+    lcd.backlight();
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("*   Tarjeta    *");
+    lcd.setCursor(0, 1);
+    lcd.print("*  invalida    *");
+    tone(BUZZER_PIN, 600);  // Activar tono para tarjeta válida
+    delay(100);  // Mantener el tono durante 200ms
+    noTone(BUZZER_PIN);  // Detener el tono
+    tone(BUZZER_PIN, 400);  // Activar tono para tarjeta válida
+    delay(200);  // Mantener el tono durante 200ms
+    noTone(BUZZER_PIN);  // Detener el tono
+    if (bloqueado == false) { 
+      if (timerActive == false) {
+        delay(2000);
+        lcd.clear();
+        bienvenida(); 
+      } else { 
+        espera = 3; 
+        tiempodisplay();
+      }
+    } else {
+      delay(2000);
+      alumnofuera();
+    }
+  } 
+
+  Serial.println("Read serial is: " + token);
+  Serial.print("cuentasalidas:");
+    Serial.println(cuentasalidas);
+  Serial.print ("ultimoindice:");
+   Serial.println(ultimoindice);
+  reader.PICC_HaltA();
+  reader.PCD_StopCrypto1();
+}
